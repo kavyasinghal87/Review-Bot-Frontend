@@ -1,64 +1,156 @@
 "use client";
 import React, { useState } from 'react';
 import Editor from "@monaco-editor/react";
-import { AlertCircle, CheckCircle2, Zap, Code2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Zap, Code2, Cpu } from "lucide-react";
 
 export default function ReviewBotDashboard() {
-  const [code, setCode] = useState("// Paste C++ or Java code here...");
+  const [code, setCode] = useState("// Paste your C++ or Java code here...");
   const [report, setReport] = useState<any>(null);
   const [optCode, setOptCode] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleAudit = async () => {
     setLoading(true);
-    const res = await fetch('http://localhost:8000/audit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
-    });
-    setReport(await res.json());
+    setOptCode(""); // Reset optimized code on new audit
+    try {
+      // Points to 127.0.0.1 to match your api.py terminal exactly
+      const res = await fetch('http://127.0.0.1:8000/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      
+      if (!res.ok) throw new Error("Server error");
+      
+      const data = await res.json();
+      setReport(data);
+    } catch (error) {
+      console.error("Connection failed:", error);
+      alert("Backend server (api.py) is not responding. Please check your VS Code terminal!");
+      setReport(null);
+    }
     setLoading(false);
   };
 
   const handleOptimize = async () => {
     setLoading(true);
-    const res = await fetch('http://localhost:8000/optimize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
-    });
-    const data = await res.json();
-    setOptCode(data.optimized_code);
+    try {
+      const res = await fetch('http://127.0.0.1:8000/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      setOptCode(data.optimized_code);
+    } catch (error) {
+      console.error("Optimization failed:", error);
+    }
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-gray-300 p-8">
+    <div className="min-h-screen bg-[#0d1117] text-gray-300 p-8 font-sans">
+      {/* Header Section */}
       <header className="flex items-center gap-3 mb-8">
-        <h1 className="text-2xl font-bold text-white">Review-Bot <span className="text-blue-500">v1.0</span></h1>
+        <div className="bg-blue-600 p-2 rounded-lg">
+          <Cpu className="text-white" size={24} />
+        </div>
+        <h1 className="text-2xl font-bold text-white tracking-tight">
+          Review-Bot <span className="text-blue-500 font-mono">v1.0</span>
+        </h1>
       </header>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* LEFT SIDE: Input Editor */}
         <section className="space-y-4">
-          <button onClick={handleAudit} className="w-full py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-500">
-            {loading ? "Analyzing..." : "Run AI Audit"}
-          </button>
-          <div className="border border-gray-800 rounded-lg overflow-hidden">
-            <Editor height="60vh" theme="vs-dark" defaultLanguage="cpp" value={code} onChange={(v) => setCode(v || "")} />
+          <div className="flex justify-between items-center bg-[#161b22] p-3 rounded-t-lg border border-gray-800 border-b-0">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+              <Code2 size={14} /> Source Code
+            </span>
+            <button 
+              onClick={handleAudit} 
+              disabled={loading}
+              className={`px-6 py-1.5 rounded text-sm font-bold transition-all ${
+                loading ? "bg-gray-700 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20"
+              }`}
+            >
+              {loading ? "Analyzing..." : "Run AI Audit"}
+            </button>
+          </div>
+          <div className="border border-gray-800 rounded-b-lg overflow-hidden shadow-2xl">
+            <Editor 
+              height="65vh" 
+              theme="vs-dark" 
+              defaultLanguage="cpp" 
+              value={code} 
+              onChange={(v) => setCode(v || "")}
+              options={{ fontSize: 14, minimap: { enabled: false } }}
+            />
           </div>
         </section>
-        <section className="bg-[#161b22] border border-gray-800 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">AI Audit Report</h2>
-          {report && (
-            <div className="space-y-4">
-              <div className={`p-4 rounded border ${report.status === 'ERROR' ? 'border-red-900 text-red-400' : 'border-green-900 text-green-400'}`}>
-                {report.status === 'ERROR' ? "❌ Bugs Found" : "✅ Code Clean"}
+
+        {/* RIGHT SIDE: AI Reports */}
+        <section className="bg-[#161b22] border border-gray-800 rounded-lg p-6 flex flex-col gap-6 shadow-xl">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2 border-b border-gray-800 pb-4">
+            <Zap className="text-yellow-400" size={18} /> AI Insight Dashboard
+          </h2>
+
+          {!report ? (
+            <div className="flex-1 flex flex-col items-center justify-center opacity-30 italic py-20">
+              <p>Paste your code and click Audit to begin analysis.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Status Badge */}
+              <div className={`flex items-center gap-3 p-4 rounded-md border ${
+                report.status === 'ERROR' 
+                ? 'bg-red-950/20 border-red-900/50 text-red-400' 
+                : 'bg-green-950/20 border-green-900/50 text-green-400'
+              }`}>
+                {report.status === 'ERROR' ? <AlertCircle /> : <CheckCircle2 />}
+                <span className="font-bold">{report.status === 'ERROR' ? "Bugs Found" : "No Bugs Detected"}</span>
               </div>
-              {report.status === 'SUCCESS' && (
-                <>
-                  <p className="text-blue-400 font-mono">Complexity: {report.complexity}</p>
-                  <button onClick={handleOptimize} className="w-full py-2 border border-blue-600 text-blue-600 rounded">Optimize Code</button>
-                  {optCode && <pre className="p-4 bg-black rounded text-green-400 text-xs mt-4">{optCode}</pre>}
-                </>
+
+              {/* Bug List or Complexity Report */}
+              {report.status === 'ERROR' ? (
+                <div className="space-y-3">
+                  <p className="text-sm font-bold text-red-500 uppercase tracking-tighter">Fix these errors:</p>
+                  <ul className="space-y-2 text-sm text-gray-400">
+                    {report.errors.map((err: string, i: number) => (
+                      <li key={i} className="bg-black/30 p-3 rounded border-l-4 border-red-600 italic">"{err}"</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-black/40 rounded-lg border border-gray-800">
+                      <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">Time Complexity</p>
+                      <p className="text-2xl font-mono text-blue-400">{report.complexity}</p>
+                    </div>
+                    <div className="p-4 bg-black/40 rounded-lg border border-gray-800">
+                      <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">AI Suggestion</p>
+                      <p className="text-xs italic text-gray-300">"{report.hint}"</p>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleOptimize} 
+                    className="w-full py-3 border border-blue-500 text-blue-500 rounded font-bold text-xs uppercase tracking-widest hover:bg-blue-500 hover:text-white transition-all duration-300"
+                  >
+                    Generate Optimized Algorithm
+                  </button>
+
+                  {/* Optimized Code Output */}
+                  {optCode && (
+                    <div className="mt-4 space-y-2 animate-in zoom-in-95 duration-300">
+                      <p className="text-[10px] text-gray-500 uppercase font-bold">Refactored Result</p>
+                      <pre className="p-4 bg-black rounded-lg text-xs overflow-x-auto text-green-400 border border-green-900/30 font-mono leading-relaxed">
+                        {optCode}
+                      </pre>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
