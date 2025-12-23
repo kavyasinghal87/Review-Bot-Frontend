@@ -1,18 +1,30 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Editor from "@monaco-editor/react";
-import { AlertCircle, CheckCircle2, Zap, Code2, Cpu } from "lucide-react";
+import { AlertCircle, CheckCircle2, Zap, Code2, Cpu, Timer } from "lucide-react";
 
 export default function ReviewBotDashboard() {
   const [code, setCode] = useState("// Paste your C++ or Java code here...");
   const [report, setReport] = useState<any>(null);
   const [optCode, setOptCode] = useState("");
   const [loading, setLoading] = useState(false);
+  
+  // New States for Rate Limiting
+  const [cooldown, setCooldown] = useState(0);
 
-  // This will use your Render URL if available, otherwise it falls back to local for testing
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://review-bot-backend.onrender.com";
 
+  // Logic to handle the 60-second countdown
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldown]);
+
   const handleAudit = async () => {
+    if (cooldown > 0) return;
+    
     setLoading(true);
     setOptCode(""); 
     try {
@@ -22,6 +34,18 @@ export default function ReviewBotDashboard() {
         body: JSON.stringify({ code }),
       });
       
+      // Professional 429 Quota Check
+      if (res.status === 429) {
+        setReport({
+          status: 'ERROR',
+          errors: ["Free AI Quota reached. Google limits free accounts to 15 requests per minute."],
+          hint: "Please wait for the timer to reset."
+        });
+        setCooldown(60); // Start 60s cooldown
+        setLoading(false);
+        return;
+      }
+
       if (!res.ok) throw new Error("Server error");
       
       const data = await res.json();
@@ -42,6 +66,14 @@ export default function ReviewBotDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code }),
       });
+
+      if (res.status === 429) {
+        alert("Optimization limit reached. Try again in 1 minute.");
+        setCooldown(60);
+        setLoading(false);
+        return;
+      }
+
       const data = await res.json();
       setOptCode(data.optimized_code);
     } catch (error) {
@@ -52,7 +84,6 @@ export default function ReviewBotDashboard() {
 
   return (
     <div className="min-h-screen bg-[#0d1117] text-gray-300 p-8 font-sans">
-      {/* UPDATED HEADER: Now says ReviewBot AI */}
       <header className="flex items-center gap-3 mb-8">
         <div className="bg-blue-600 p-2 rounded-lg">
           <Cpu className="text-white" size={24} />
@@ -63,7 +94,6 @@ export default function ReviewBotDashboard() {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* LEFT SIDE: Editor */}
         <section className="space-y-4">
           <div className="flex justify-between items-center bg-[#161b22] p-3 rounded-t-lg border border-gray-800 border-b-0">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
@@ -71,12 +101,16 @@ export default function ReviewBotDashboard() {
             </span>
             <button 
               onClick={handleAudit} 
-              disabled={loading}
-              className={`px-6 py-1.5 rounded text-sm font-bold transition-all ${
-                loading ? "bg-gray-700 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20"
+              disabled={loading || cooldown > 0}
+              className={`px-6 py-1.5 rounded text-sm font-bold transition-all flex items-center gap-2 ${
+                loading || cooldown > 0 
+                ? "bg-gray-700 cursor-not-allowed text-gray-400" 
+                : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20"
               }`}
             >
-              {loading ? "Analyzing..." : "Run AI Audit"}
+              {loading ? "Analyzing..." : cooldown > 0 ? (
+                <><Timer size={14} /> {cooldown}s Wait</>
+              ) : "Run AI Audit"}
             </button>
           </div>
           <div className="border border-gray-800 rounded-b-lg overflow-hidden shadow-2xl">
@@ -91,7 +125,6 @@ export default function ReviewBotDashboard() {
           </div>
         </section>
 
-        {/* RIGHT SIDE: Dashboard */}
         <section className="bg-[#161b22] border border-gray-800 rounded-lg p-6 flex flex-col gap-6 shadow-xl">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2 border-b border-gray-800 pb-4">
             <Zap className="text-yellow-400" size={18} /> AI Insight Dashboard
@@ -109,17 +142,18 @@ export default function ReviewBotDashboard() {
                 : 'bg-green-950/20 border-green-900/50 text-green-400'
               }`}>
                 {report.status === 'ERROR' ? <AlertCircle /> : <CheckCircle2 />}
-                <span className="font-bold">{report.status === 'ERROR' ? "Bugs Found" : "No Bugs Detected"}</span>
+                <span className="font-bold">{report.status === 'ERROR' ? "Alert" : "No Bugs Detected"}</span>
               </div>
 
               {report.status === 'ERROR' ? (
                 <div className="space-y-3">
-                  <p className="text-sm font-bold text-red-500 uppercase tracking-tighter">Fix these errors:</p>
+                  <p className="text-sm font-bold text-red-500 uppercase tracking-tighter">Information:</p>
                   <ul className="space-y-2 text-sm text-gray-400">
                     {report.errors.map((err: string, i: number) => (
                       <li key={i} className="bg-black/30 p-3 rounded border-l-4 border-red-600 italic">"{err}"</li>
                     ))}
                   </ul>
+                  {cooldown > 0 && <p className="text-xs text-yellow-500 animate-pulse">Waiting for free quota to reset...</p>}
                 </div>
               ) : (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -136,9 +170,12 @@ export default function ReviewBotDashboard() {
 
                   <button 
                     onClick={handleOptimize} 
-                    className="w-full py-3 border border-blue-500 text-blue-500 rounded font-bold text-xs uppercase tracking-widest hover:bg-blue-500 hover:text-white transition-all duration-300"
+                    disabled={cooldown > 0}
+                    className={`w-full py-3 border rounded font-bold text-xs uppercase tracking-widest transition-all duration-300 ${
+                      cooldown > 0 ? "border-gray-700 text-gray-500 cursor-not-allowed" : "border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white"
+                    }`}
                   >
-                    Generate Optimized Algorithm
+                    {cooldown > 0 ? `Quota Limit Active (${cooldown}s)` : "Generate Optimized Algorithm"}
                   </button>
 
                   {optCode && (
